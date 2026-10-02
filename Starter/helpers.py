@@ -84,6 +84,7 @@ def compare_baseline_rfe(
         scores = cross_val_score(
             model, X_train, y_train, cv=splits,
             scoring="roc_auc", error_score="raise",
+            n_jobs=5 # parallelize - lucky's addition
         )
 
         model.fit(X_train, y_train)
