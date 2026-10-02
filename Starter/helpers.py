@@ -27,7 +27,7 @@ def make_feature_pipeline(selection="all", *, k=0.5, estimator=None, step=0.2):
     ])
 
 
-def make_pipeline(preprocessor: ColumnTransformer, feature_pipeline, classifier):
+def custom_make_pipeline(preprocessor: ColumnTransformer, feature_pipeline, classifier):
     return Pipeline([
         ("preprocess", preprocessor),
         ("features", feature_pipeline),
