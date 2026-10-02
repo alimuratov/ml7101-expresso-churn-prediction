@@ -5,7 +5,7 @@ from sklearn.feature_selection import RFE
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.model_selection import GroupKFold, StratifiedKFold, cross_val_score
 
 
 
@@ -36,24 +36,40 @@ def make_pipeline(preprocessor: ColumnTransformer, feature_pipeline, classifier)
 
 
 def compare_baseline_rfe(
-    X_train, y_train, X_val, y_val, *, k=7, cv=3, random_state=42,
+    X_train, y_train, X_val=None, y_val=None, *, k=7, cv=3,
+    random_state=42, preprocessor=None, groups=None,
 ):
     """
     Input: processed data
-    k = the number of features to reteain
+    k = the number of features to retain
     cv = number of folds in cross-validation 
     """
-    folds = StratifiedKFold(n_splits=cv, shuffle=True, random_state=random_state)
-    results = []
-    models = {}
-
-    for selection in ["all", "rfe"]:
+    if (X_val is None) != (y_val is None):
+        raise ValueError("Supply both X_val and y_val, or neither.")
+    if isinstance(cv, int):
+        folds = (
+            GroupKFold(n_splits=cv) if groups is not None
+            else StratifiedKFold(
+                n_splits=cv, shuffle=True, random_state=random_state,
+            )
+        )
+    else:
+        folds = cv
+    # Materialize once so both experiments use exactly the same rows per fold.
+    splits = list(folds.split(X_train, y_train, groups))
+    if preprocessor is None:
+        # TODO: change this to Lucky's transformer once ready
         preprocessor = ColumnTransformer(
             [("prepared", "passthrough", X_train.columns.tolist())],
             verbose_feature_names_out=False,
         )
+    results = []
+    models = {}
+
+    for selection in ["all", "rfe"]:
+        # Use logistic regression as the baseline
         model = make_pipeline(
-            preprocessor=preprocessor,
+            preprocessor=clone(preprocessor),
             feature_pipeline=make_feature_pipeline(
                 selection, k=k, step=0.2,
                 estimator=LogisticRegression(
@@ -64,25 +80,30 @@ def compare_baseline_rfe(
                 max_iter=2000, random_state=random_state,
             ),
         )
+
         scores = cross_val_score(
-            model, X_train, y_train, cv=folds,
+            model, X_train, y_train, cv=splits,
             scoring="roc_auc", error_score="raise",
         )
 
         model.fit(X_train, y_train)
         models[selection] = model
 
-        probabilities = model.predict_proba(X_val)[:, 1]
-        predictions = model.predict(X_val)
-        results.append({
+        result = {
             "method": selection,
             "n_features": model.named_steps["model"].n_features_in_,
             "cv_auc": scores.mean(),
             "cv_auc_std": scores.std(),
-            "validation_auc": roc_auc_score(y_val, probabilities),
-            "validation_accuracy": accuracy_score(y_val, predictions),
-            "validation_f1": f1_score(y_val, predictions, zero_division=0),
-        })
+        }
+        if X_val is not None:
+            probabilities = model.predict_proba(X_val)[:, 1]
+            predictions = model.predict(X_val)
+            result.update({
+                "validation_auc": roc_auc_score(y_val, probabilities),
+                "validation_accuracy": accuracy_score(y_val, predictions),
+                "validation_f1": f1_score(y_val, predictions, zero_division=0),
+            })
+        results.append(result)
 
     comparison = (
         pd.DataFrame(results)
