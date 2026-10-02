@@ -68,7 +68,7 @@ def compare_baseline_rfe(
 
     for selection in ["all", "rfe"]:
         # Use logistic regression as the baseline
-        model = make_pipeline(
+        model = custom_make_pipeline(
             preprocessor=clone(preprocessor),
             feature_pipeline=make_feature_pipeline(
                 selection, k=k, step=0.2,
